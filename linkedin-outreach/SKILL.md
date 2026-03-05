@@ -67,6 +67,22 @@ Ask the user:
 - Save their response for use in Step 2.6.
 - If the user wants different subjects per contact, note that, but default is a single subject for all.
 
+### Step 0.4c — Open Profile Preference
+
+Ask the user using AskUserQuestion: **"Do you want to message only leads with Open Profile (free InMail), or all leads?"**
+
+Options:
+- **Open Profile only** — Only message leads where the compose window shows "Free to Open Profile". Skip any lead that would cost an InMail credit. This preserves credits entirely.
+- **All leads** — Message everyone regardless of Open Profile status, using InMail credits as needed. If credits run out mid-session, automatically switch to Open Profile–only mode for remaining contacts (skipping credit-required leads instead of stopping).
+
+Store this preference for use in Step 2.3b.
+
+### Step 0.4d — Session Size
+
+Ask the user: **"How many leads do you want to message in this session?"**
+
+The user can provide any number (e.g., "all of them", "50", "just 10 to test"). Accept their answer as-is. If they say "all", use the full list. Default cap is 100 per session to avoid rate limits — if the user requests more, warn them about LinkedIn's daily/monthly send limits but respect their choice.
+
 ### Step 0.5 — Confirm and Begin
 
 Summarize the setup:
@@ -77,7 +93,8 @@ Ready to begin outreach:
 - Lead list: [URL]
 - Message template: Loaded (X words, Y placeholders)
 - Subject line: [subject]
-- Session limit: 100 contacts
+- Open Profile: [only / all leads (auto-switch when credits exhausted)]
+- Session size: [number or "all"] (recommended cap: 100)
 ```
 
 Ask: "Ready to start? I'll navigate to the lead list and begin processing contacts with 'No activity'."
@@ -153,7 +170,7 @@ Filter to only contacts where activity is "No activity".
 Create an ordered list of contacts to message. Track:
 - Contact name
 - Profile URL
-- Status (pending / sent / skipped / failed)
+- Status (pending / sent / skipped_activity / skipped_not_open_profile / skipped_no_credits / skipped_comms_disabled / failed)
 
 Report to the user: "Found X contacts with no activity out of Y total. Ready to begin?"
 Wait for user confirmation before proceeding.
@@ -199,6 +216,36 @@ Extract the contact's first name from the full name.
 Use find tool with query "Message" to locate the Message button.
 Use computer tool with left_click on the button coordinates.
 ```
+
+### Step 2.3b — Detect Open Profile vs Credit Required
+
+After clicking Message, check whether this lead has Open Profile (free) or requires an InMail credit:
+
+```javascript
+const allText = document.body.innerText;
+const creditMatch = allText.match(/Use (\d+) of (\d+) credits?/i);
+const isOpenProfile = /Free.{0,15}Open\s*Profile/i.test(allText);
+JSON.stringify({
+  isOpenProfile,
+  requiresCredit: !!creditMatch,
+  creditsRemaining: creditMatch ? parseInt(creditMatch[2]) : null,
+  detail: isOpenProfile ? 'Free to Open Profile' : (creditMatch ? creditMatch[0] : 'unknown')
+});
+```
+
+- **"Free to Open Profile"** → Lead has Open Profile, free to message. Always proceed.
+- **"Use 1 of X credits"** → Lead requires an InMail credit.
+
+**Decision logic based on user preference (Step 0.4c):**
+
+1. **If user chose "Open Profile only":**
+   - Open Profile → proceed to Step 2.4
+   - Credit required → close compose, skip this contact (status: `skipped_not_open_profile`), move to next
+
+2. **If user chose "All leads":**
+   - Open Profile → proceed to Step 2.4
+   - Credit required AND credits > 0 → proceed to Step 2.4
+   - Credit required AND credits = 0 → close compose, skip this contact (status: `skipped_no_credits`), move to next. Log: "Switched to Open Profile–only mode (credits exhausted)." Continue processing remaining contacts — do NOT stop the session.
 
 ### Step 2.4 — Wait for Compose Form
 
@@ -308,13 +355,13 @@ JSON.stringify({
 ```javascript
 const creditText = document.body.innerText.match(/Use \d+ of (\d+) credits?/);
 const credits = creditText ? parseInt(creditText[1]) : null;
-const isFreeOpenProfile = document.body.innerText.includes('Free') &&
-                          document.body.innerText.includes('Open Profile');
+const isFreeOpenProfile = /Free.{0,15}Open\s*Profile/i.test(document.body.innerText);
 JSON.stringify({ credits, isFreeOpenProfile }, null, 2);
 ```
 
-- If credits drop to 0, stop and notify user
 - "Free to Open Profile" contacts don't consume credits — these can always be messaged
+- **If credits drop to 0:** Do NOT stop the session. Instead, automatically switch to Open Profile–only mode. Log the switch and continue processing remaining contacts, skipping any that require credits. Report how many were skipped at the end.
+- Only stop if BOTH credits are exhausted AND there are no remaining Open Profile leads to attempt
 
 ### Step 2.11 — Close and Continue
 ```
@@ -336,8 +383,12 @@ Outreach Session Summary
 ========================
 Total contacts processed: X
 Messages sent: X
+  - Open Profile (free): X
+  - InMail credit used: X
 Skipped (already contacted): X
 Skipped (activity detected): X
+Skipped (not Open Profile): X
+Skipped (no credits remaining): X
 Failed: X (list names and reasons)
 InMail credits remaining: X
 
@@ -347,8 +398,8 @@ Contacts requiring retry:
 
 ### Step 3.2 — Session Limit
 
-If X contacts were processed, pause and ask:
-"Reached X-contact session limit. Continue with remaining Y contacts?"
+When the number of contacts processed reaches the session size from Step 0.4d, pause and ask:
+"Reached [session size]-contact session limit. Continue with remaining Y contacts?"
 
 Wait for explicit user confirmation before proceeding.
 
@@ -360,7 +411,7 @@ Wait for explicit user confirmation before proceeding.
 - **Always** check "Outreach activity" column = "No activity" before messaging
 - **Always** verify conversation header name matches the contact before sending
 - **Stop immediately** on any LinkedIn warning, captcha, or rate limit
-- Max **100 contacts per session**, then pause and ask for user confirmation
+- Respect the **session size** from Step 0.4d (default cap: 100), then pause and ask for user confirmation before continuing
 - If compose form loads empty after retries, stop — likely soft rate limit
 
 ## Screenshot Policy
@@ -379,11 +430,11 @@ Screenshots are for **learning**, not for **operating**.
 
 - After each send, check for "Send failed" text AND "reached the limit" banner
 - Verify BOTH "Awaiting reply" AND absence of "Send failed" (old "Awaiting reply" text can linger)
-- If send fails due to credits or monthly limit: close conversation, STOP, report to user
-- "Free to Open Profile" contacts do NOT consume credits
-- Monitor credit count in compose form (e.g., "Use 1 of 12 credits") — stop at 0
+- "Free to Open Profile" contacts do NOT consume credits — detected via `Free.{0,15}Open\s*Profile` in compose window text
+- "Use 1 of X credits" contacts require an InMail credit — detected via `/Use (\d+) of (\d+) credits?/i`
+- **When credits reach 0:** Do NOT stop. Switch to Open Profile–only mode automatically. Continue processing remaining contacts, messaging only Open Profile leads and skipping credit-required ones.
+- **When send fails due to monthly limit:** Close conversation, STOP all sending, report to user. Monthly SEND LIMIT is SEPARATE from credits — LinkedIn has a monthly cap independent of credit balance.
 - Credits reset monthly
-- Monthly SEND LIMIT is SEPARATE from credits — LinkedIn has a monthly cap independent of credit balance
 
 ## Error Handling
 
@@ -404,7 +455,8 @@ Screenshots are for **learning**, not for **operating**.
 
 ### InMail Send Failure
 - Check for "Send failed" and limit banners
-- Stop ALL sending immediately
+- If failure is due to **credits exhausted**: switch to Open Profile–only mode, continue session
+- If failure is due to **monthly send limit** or other hard limit: stop ALL sending, report to user
 - Report credits remaining and contacts not yet messaged
 
 ### Monthly Send Limit
