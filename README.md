@@ -1,65 +1,83 @@
-# LinkedIn Outreach Skill for Claude
+# LinkedIn Automation Skills for Claude
 
-A Claude skill that automates personalized LinkedIn InMail outreach through Sales Navigator. It reads a lead list, filters contacts by activity status, and sends templated messages with per-contact placeholder replacement.
+Two Claude skills for LinkedIn Sales Navigator: one builds targeted lead lists, the other sends personalized InMail outreach.
+
+## Skills
+
+### `sales-nav-list-builder`
+
+Builds lead lists through a guided conversation. You describe who you're looking for (titles, industries, geography, company size, seniority) and the skill applies the filters in Sales Navigator and saves the results as a named list — page by page.
+
+Supports multi-page saving (up to 1,500 leads), search saving, list deletion, and excluding leads already in other lists or previously contacted.
+
+### `linkedin-outreach`
+
+Sends personalized InMail messages to leads from a Sales Navigator list. Reads your lead list, filters to contacts with no prior activity, and sends a templated message with per-contact placeholder replacement.
+
+Supports Open Profile detection — can message only free-to-contact leads, or message everyone and automatically switch to Open Profile–only mode when InMail credits run out (instead of stopping).
 
 ## Prerequisites
 
 - [Claude Code](https://claude.com/claude-code) OR [Claude Desktop](https://claude.com/download)
 - [Claude in Chrome](https://chromewebstore.google.com/detail/claude-in-chrome/) extension (connected)
-- LinkedIn Sales Navigator subscription with InMail credits
+- LinkedIn Sales Navigator subscription
 
 ## Quick Start
 
 ### Option A: Claude Code (CLI)
 
-**Install as a personal skill (available across all projects):**
+Install both skills as personal skills:
 ```bash
+mkdir -p ~/.claude/skills/sales-nav-list-builder
+cp sales-nav-list-builder/SKILL.md ~/.claude/skills/sales-nav-list-builder/SKILL.md
+
 mkdir -p ~/.claude/skills/linkedin-outreach
-cp SKILL.md ~/.claude/skills/linkedin-outreach/SKILL.md
+cp linkedin-outreach/SKILL.md ~/.claude/skills/linkedin-outreach/SKILL.md
 ```
 
 Then start Claude Code and run:
+```
+/sales-nav-list-builder
+```
+or
 ```
 /linkedin-outreach
 ```
 
 ### Option B: Claude Desktop (GUI)
 
-1. Open the Claude desktop app, go to settings -> capabilities -> scroll down to skills -> Add
-2. Upload the `SKILL.md` content
-3. Start Cowork session, mention the use of linkedin-outreach skill and follow the interactive setup prompts
+1. Open the Claude desktop app, go to Settings -> Capabilities -> scroll down to Skills -> Add
+2. Upload the `SKILL.md` from the skill folder you want to use
+3. Start a Cowork session and mention the skill by name
 
-### Initial Setup
-Both options will walk you through:
-- Verifying browser connection
-- Confirming LinkedIn login
-- Collecting your lead list URL
-- Drafting a message template with `[Placeholder]` tokens
-- Drafting your InMail subject
+## Message Template (Outreach)
 
-## Message Template
-
-Your message template is saved to `core_message.txt` and sent **verbatim** to each contact. Use bracket placeholders for per-contact data:
+Your outreach message template is saved to `core_message.txt` and sent **verbatim** to each contact. Use bracket placeholders for per-contact data:
 
 | Placeholder | Type | Replaced With |
 |---|---|---|
 | `[First Name]` | Data | Contact's first name |
 | `[Company]` | Data | Current company |
 | `[Any Custom]` | Data | Resolved from profile data |
-| `[Write a short ice-breaker about their role in cybersecurity]` | Instruction | Claude generates content based on the guidance inside the brackets |
-
-Instruction placeholders let you embed creative direction directly in your template. Claude reads the contact's profile and follows the guidance to generate that section — while keeping the rest of the message verbatim.
+| `[Write a short ice-breaker about their role]` | Instruction | Claude generates content based on the guidance inside the brackets |
 
 ## How It Works
 
-1. **Pre-flight** — Navigates to the lead list, fetches all profile URLs, filters to contacts with "No activity" only
-2. **Per contact** — Opens profile, reads details, composes InMail with placeholder replacement, sends, verifies delivery
-3. **Post-session** — Reports a summary of sent, skipped, and failed contacts
+**List Builder:**
+1. Guided interview to collect targeting criteria
+2. Applies filters in Sales Navigator
+3. Saves results page by page to a named lead list
+
+**Outreach:**
+1. Navigates to the lead list, fetches all profile URLs, filters to "No activity" contacts
+2. Opens each profile, reads details, composes InMail with placeholder replacement, sends, verifies delivery
+3. Detects Open Profile vs credit-required per lead — skips or proceeds based on your preference
+4. Reports a summary of sent, skipped, and failed contacts
 
 ## Safety
 
 - Confirms with the user before starting and at session limits
 - Verifies recipient name matches before every send
-- Stops immediately on rate limits, captchas, or send failures
-- Monitors InMail credit count and monthly send caps
+- Stops immediately on rate limits, captchas, or monthly send limits
+- Monitors InMail credits — switches to Open Profile–only mode when exhausted instead of stopping
 - Skips contacts who have disabled communications
